@@ -1,11 +1,14 @@
 package main
 
 import (
+	"errors"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"time"
+	"path/filepath"
+	"encoding/binary"
 )
 
 func main() {
@@ -63,13 +66,6 @@ type Server struct {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	s.log("%s %s", r.Method, r.URL.Path)
-
 	s.mux.ServeHTTP(w, r)
 }
 
@@ -77,6 +73,167 @@ func (s *Server) log(format string, v ...interface{}) {
 	s.logger.Printf(format+"\n", v...)
 }
 
+func inTrustedRoot(path string, trustedRoot string) error {
+	for path != "/" {
+		path = filepath.Dir(path)
+		if path == trustedRoot {
+			return nil
+		}
+	}
+	return errors.New("path is outside of trusted root")
+}
+
+func verifyPathForGet(s *Server, raw_path string) (string, int, error) {
+
+	working, err := os.Getwd()
+	if err != nil {
+		s.log("ERROR --> %d", http.StatusInternalServerError)
+		s.log(err.Error())
+		return "", http.StatusInternalServerError, err
+	}
+
+	trustedRoot := filepath.Join(working, "files")
+	path := filepath.Join(working, "files", raw_path)
+
+	c := filepath.Clean(path)
+
+	_, err = os.Stat(c)
+	if err != nil {
+		s.log("ERROR --> %d", http.StatusNotFound)
+		s.log(err.Error())
+		return "", http.StatusNotFound, err
+	}
+
+	r, err := filepath.EvalSymlinks(c)
+	if err != nil {
+		s.log("ERROR --> %d", http.StatusBadRequest)
+		s.log(err.Error())
+		return "", http.StatusBadRequest, err
+	}
+
+	err = inTrustedRoot(r, trustedRoot)
+	if err != nil {
+		s.log("ERROR --> %d", http.StatusBadRequest)
+		s.log(err.Error())
+		return "", http.StatusBadRequest, err
+	}
+
+	return r, http.StatusOK, nil
+}
+
+func verifyPathForPut(s *Server, raw_path string) (string, int, error) {
+
+	working, err := os.Getwd()
+	if err != nil {
+		s.log("ERROR --> %d", http.StatusInternalServerError)
+		s.log(err.Error())
+		return "", http.StatusInternalServerError, err
+	}
+
+	trustedRoot := filepath.Join(working, "files")
+	path := filepath.Join(working, "files", raw_path)
+
+	c := filepath.Clean(path)
+
+	_, err = os.Stat(c)
+	if err != nil {
+		s.log("ERROR --> %d", http.StatusNotFound)
+		s.log(err.Error())
+		return "", http.StatusNotFound, err
+	}
+
+	r, err := filepath.EvalSymlinks(c)
+	if err != nil {
+		s.log("ERROR --> %d", http.StatusBadRequest)
+		s.log(err.Error())
+		return "", http.StatusBadRequest, err
+	}
+
+	err = inTrustedRoot(r, trustedRoot)
+	if err != nil {
+		s.log("ERROR --> %d", http.StatusBadRequest)
+		s.log(err.Error())
+		return "", http.StatusBadRequest, err
+	}
+
+	return r, http.StatusOK, nil
+}
+
+
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Hello, world!"))
+
+	s.log("index: Request --> %+v", r)
+
+	if r.Method == "GET" {
+
+		filename, status, err := verifyPathForGet(s, r.URL.Path)
+		if err != nil {
+			w.WriteHeader(status)
+			return
+		}
+
+		dat, err := os.ReadFile(filename)
+		if err != nil {
+			s.log("ERROR --> %d", http.StatusInternalServerError)
+			s.log(err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		s.log("Success! --> %d, (%d bytes)", http.StatusOK, len(dat))
+		w.Write(dat)
+
+	} else if r.Method == "PUT" {
+
+		s.log("index: r.URL.Path: %s", r.URL.Path)
+
+		filename, status, err := verifyPathForPut(s, r.URL.Path)
+		if err != nil {
+			w.WriteHeader(status)
+			return
+		}
+
+		reqBody, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			s.log("ERROR --> %d", http.StatusInternalServerError)
+			s.log(err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		s.log("Body: %s", reqBody)
+
+		dat, err := os.ReadFile(filename)
+		if err != nil {
+			s.log("ERROR --> %d", http.StatusInternalServerError)
+			s.log(err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		f, err := os.Create(filename)
+		defer f.Close()
+		if err != nil {
+			s.log("ERROR --> %d", http.StatusInternalServerError)
+			s.log(err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		err = binary.Write(f, binary.BigEndian, dat)
+		if err != nil {
+			s.log("ERROR --> %d", http.StatusInternalServerError)
+			s.log(err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		s.log("Success! --> %d", http.StatusOK)
+			w.WriteHeader(http.StatusOK)
+
+	} else {
+		s.log("ERROR --> %d", http.StatusMethodNotAllowed)
+		s.log("Method:" + r.Method)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 }
