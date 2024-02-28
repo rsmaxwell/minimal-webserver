@@ -186,7 +186,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 
 	} else if r.Method == "PUT" {
 
-		s.log("index: r.URL.Path: %s", r.URL.Path)
+		// s.log("index: r.URL.Path: %s", r.URL.Path)
 
 		filename, status, err := verifyPathForPut(s, r.URL.Path)
 		if err != nil {
