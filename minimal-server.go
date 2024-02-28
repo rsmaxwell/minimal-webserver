@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -140,7 +141,7 @@ func verifyPathForPut(s *Server, raw_path string) (string, int, error) {
 		s.log("ERROR --> %d", http.StatusBadRequest)
 		s.log("file already exists")
 		s.log(cf)
-		return "", http.StatusBadRequest, err
+		return "", http.StatusBadRequest, fmt.Errorf("file already exists: %s", cf)
 	}
 
 	err = inTrustedRoot(cf, trustedRoot)
@@ -163,7 +164,7 @@ func verifyPathForPut(s *Server, raw_path string) (string, int, error) {
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 
-	// s.log("index: Request --> %+v", r)
+	s.log("%s %s", r.Method, r.URL.Path)
 
 	if r.Method == "GET" {
 
