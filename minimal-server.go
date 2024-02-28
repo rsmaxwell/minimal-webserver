@@ -95,16 +95,16 @@ func verifyPathForGet(s *Server, raw_path string) (string, int, error) {
 	trustedRoot := filepath.Join(working, "files")
 	path := filepath.Join(working, "files", raw_path)
 
-	c := filepath.Clean(path)
+	cf := filepath.Clean(path)
 
-	_, err = os.Stat(c)
+	_, err = os.Stat(cf)
 	if err != nil {
 		s.log("ERROR --> %d", http.StatusNotFound)
 		s.log(err.Error())
 		return "", http.StatusNotFound, err
 	}
 
-	r, err := filepath.EvalSymlinks(c)
+	r, err := filepath.EvalSymlinks(cf)
 	if err != nil {
 		s.log("ERROR --> %d", http.StatusBadRequest)
 		s.log(err.Error())
@@ -163,7 +163,7 @@ func verifyPathForPut(s *Server, raw_path string) (string, int, error) {
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 
-	s.log("index: Request --> %+v", r)
+	// s.log("index: Request --> %+v", r)
 
 	if r.Method == "GET" {
 
@@ -201,7 +201,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		s.log("Body: %s", reqBody)
+		// s.log("Body: %s", reqBody)
 
 		f, err := os.Create(filename)
 		if err != nil {
