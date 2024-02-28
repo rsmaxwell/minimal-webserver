@@ -1,14 +1,14 @@
 package main
 
 import (
+	"encoding/binary"
 	"errors"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"os"
-	"time"
 	"path/filepath"
-	"encoding/binary"
+	"time"
 )
 
 func main() {
@@ -40,7 +40,7 @@ func getAddr() string {
 }
 
 func newServer(options ...Option) *Server {
-	s := &Server{logger: log.New(ioutil.Discard, "", 0)}
+	s := &Server{logger: log.New(io.Discard, "", 0)}
 
 	for _, o := range options {
 		o(s)
@@ -133,32 +133,33 @@ func verifyPathForPut(s *Server, raw_path string) (string, int, error) {
 	trustedRoot := filepath.Join(working, "files")
 	path := filepath.Join(working, "files", raw_path)
 
-	c := filepath.Clean(path)
+	cf := filepath.Clean(path)
 
-	_, err = os.Stat(c)
-	if err != nil {
-		s.log("ERROR --> %d", http.StatusNotFound)
-		s.log(err.Error())
-		return "", http.StatusNotFound, err
+	_, err = os.Stat(cf)
+	if err == nil {
+		s.log("ERROR --> %d", http.StatusBadRequest)
+		s.log("file already exists")
+		s.log(cf)
+		return "", http.StatusBadRequest, err
 	}
 
-	r, err := filepath.EvalSymlinks(c)
+	err = inTrustedRoot(cf, trustedRoot)
 	if err != nil {
 		s.log("ERROR --> %d", http.StatusBadRequest)
 		s.log(err.Error())
 		return "", http.StatusBadRequest, err
 	}
 
-	err = inTrustedRoot(r, trustedRoot)
+	cd := filepath.Dir(cf)
+	err = os.MkdirAll(cd, 0666)
 	if err != nil {
 		s.log("ERROR --> %d", http.StatusBadRequest)
 		s.log(err.Error())
 		return "", http.StatusBadRequest, err
 	}
 
-	return r, http.StatusOK, nil
+	return cf, http.StatusOK, nil
 }
-
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 
@@ -193,7 +194,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		reqBody, err := ioutil.ReadAll(r.Body)
+		reqBody, err := io.ReadAll(r.Body)
 		if err != nil {
 			s.log("ERROR --> %d", http.StatusInternalServerError)
 			s.log(err.Error())
@@ -202,24 +203,16 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		}
 		s.log("Body: %s", reqBody)
 
-		dat, err := os.ReadFile(filename)
-		if err != nil {
-			s.log("ERROR --> %d", http.StatusInternalServerError)
-			s.log(err.Error())
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
 		f, err := os.Create(filename)
-		defer f.Close()
 		if err != nil {
 			s.log("ERROR --> %d", http.StatusInternalServerError)
 			s.log(err.Error())
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		defer f.Close()
 
-		err = binary.Write(f, binary.BigEndian, dat)
+		err = binary.Write(f, binary.BigEndian, reqBody)
 		if err != nil {
 			s.log("ERROR --> %d", http.StatusInternalServerError)
 			s.log(err.Error())
@@ -228,7 +221,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.log("Success! --> %d", http.StatusOK)
-			w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusOK)
 
 	} else {
 		s.log("ERROR --> %d", http.StatusMethodNotAllowed)
